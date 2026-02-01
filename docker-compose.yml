@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: crypto-ai-db
+    environment:
+      POSTGRES_USER: ${PGUSER:-sandbox}
+      POSTGRES_PASSWORD: ${PGPASSWORD:-o6SOj3uGZcZNcDZhFhDkjTiN}
+      POSTGRES_DB: crypto_ai_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PGUSER:-sandbox}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - crypto-ai-network
+
+  # Crypto AI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crypto-ai-backend
+    environment:
+      DATABASE_URL: postgresql://${PGUSER:-sandbox}:${PGPASSWORD:-o6SOj3uGZcZNcDZhFhDkjTiN}@postgres:5432/crypto_ai_db
+      PORT: 3001
+      NODE_ENV: production
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - crypto-ai-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  crypto-ai-network:
+    driver: bridge

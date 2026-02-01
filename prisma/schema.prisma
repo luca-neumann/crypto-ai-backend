@@ -1,0 +1,116 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Cryptocurrency {
+  id                String   @id @default(cuid())
+  symbol            String   @unique
+  name              String
+  currentPrice      Float
+  marketCap         Float?
+  volume24h         Float?
+  priceChange24h    Float?
+  priceChange7d     Float?
+  priceChange30d    Float?
+  circulatingSupply Float?
+  totalSupply       Float?
+  ath               Float?
+  atl               Float?
+  lastUpdated       DateTime @default(now()) @updatedAt
+  
+  predictions       Prediction[]
+  priceHistory      PriceHistory[]
+  sentiments        Sentiment[]
+  trainingData      TrainingData[]
+  
+  @@index([symbol])
+}
+
+model PriceHistory {
+  id              String   @id @default(cuid())
+  cryptoId        String
+  crypto          Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  price           Float
+  timestamp       DateTime @default(now())
+  
+  @@index([cryptoId, timestamp])
+}
+
+model Prediction {
+  id                String   @id @default(cuid())
+  cryptoId          String
+  crypto            Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  
+  signal            String
+  confidence        Float
+  priceTarget       Float?
+  riskScore         Float
+  
+  technicalScore    Float
+  sentimentScore    Float
+  volumeScore       Float
+  trendScore        Float
+  
+  reasoning         String
+  factors           String[]
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([cryptoId, createdAt])
+}
+
+model Sentiment {
+  id              String   @id @default(cuid())
+  cryptoId        String
+  crypto          Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  
+  source          String
+  text            String
+  sentiment       Float
+  confidence      Float
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([cryptoId, createdAt])
+}
+
+model TrainingData {
+  id              String   @id @default(cuid())
+  cryptoId        String
+  crypto          Cryptocurrency @relation(fields: [cryptoId], references: [id], onDelete: Cascade)
+  
+  priceAtTime     Float
+  volume24h       Float
+  priceChange24h  Float
+  priceChange7d   Float
+  marketCap       Float
+  sentimentScore  Float
+  
+  actualSignal    String
+  priceAfter7d    Float
+  accuracy        Boolean?
+  
+  timestamp       DateTime @default(now())
+  
+  @@index([cryptoId, timestamp])
+}
+
+model ModelPerformance {
+  id              String   @id @default(cuid())
+  
+  totalPredictions Int
+  correctPredictions Int
+  accuracy        Float
+  
+  buySignalAccuracy Float?
+  sellSignalAccuracy Float?
+  holdSignalAccuracy Float?
+  
+  lastEvaluated   DateTime @default(now()) @updatedAt
+}
