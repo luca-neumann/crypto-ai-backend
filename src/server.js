@@ -11,10 +11,13 @@
  * - Backtesting engine for strategy validation
  * - PostgreSQL database for data persistence
  * - RESTful API endpoints for predictions and analysis
+ * - WebSocket support for real-time alerts
+ * - Advanced analytics and performance metrics
  */
 
 const express = require('express');
 const cors = require('cors');
+const http = require('http');
 require('dotenv').config();
 
 // Import routes
@@ -27,13 +30,19 @@ const backtestingRouter = require('./routes/backtesting');
 const alertsRouter = require('./routes/alerts');
 const portfolioRouter = require('./routes/portfolio');
 const riskRouter = require('./routes/risk');
+const websocketRouter = require('./routes/websocket');
+const analyticsRouter = require('./routes/analytics');
 
 // Import services
 const { getPrismaClient } = require('./utils/db');
+const websocketService = require('./services/websocketService');
 
 // Initialize Express app
 const app = express();
 const PORT = process.env.PORT || 5000;
+
+// Create HTTP server for WebSocket support
+const server = http.createServer(app);
 
 // Middleware
 app.use(cors());
@@ -65,6 +74,8 @@ app.use('/api/backtest', backtestingRouter);
 app.use('/api/alerts', alertsRouter);
 app.use('/api/portfolio', portfolioRouter);
 app.use('/api/risk', riskRouter);
+app.use('/api/websocket', websocketRouter);
+app.use('/api/analytics', analyticsRouter);
 
 /**
  * Root endpoint - API documentation
@@ -73,44 +84,36 @@ app.get('/', (_req, res) => {
   res.json({
     name: 'Crypto AI Trading Backend',
     version: '2.0.0',
-    description: 'Advanced AI-powered cryptocurrency analysis with news scraping, ML, and backtesting',
+    description: 'Advanced AI-powered cryptocurrency analysis with news scraping, ML, backtesting, WebSocket alerts, and analytics',
     features: [
       'Real-time cryptocurrency data from CoinGecko API',
       'AI sentiment analysis using transformer models',
       'Technical analysis and trading signal generation',
       'Advanced ML with feature engineering and ensemble predictions',
-      'News scraping from multiple sources with sentiment analysis',
+      'News scraping and sentiment analysis',
       'Backtesting engine for strategy validation',
-      'Price target calculation and risk management',
-      'Model performance tracking and accuracy metrics'
+      'WebSocket support for real-time alerts',
+      'Advanced analytics and performance metrics',
+      'Portfolio optimization and risk management',
+      'PostgreSQL database for data persistence',
     ],
     endpoints: {
       health: 'GET /health',
-      predictions: {
-        getAllPredictions: 'GET /api/predictions?limit=50',
-        getPredictionBySymbol: 'GET /api/predictions/:symbol',
-        generatePrediction: 'POST /api/predictions/generate/:cryptoId',
-        generateBatchPredictions: 'POST /api/predictions/batch',
-      },
       cryptocurrencies: {
-        getAllCryptos: 'GET /api/cryptocurrencies?limit=50',
-        getCryptoData: 'GET /api/cryptocurrencies/:cryptoId',
-        getHistoricalPrices: 'GET /api/cryptocurrencies/:cryptoId/history?days=30',
-        searchCrypto: 'GET /api/cryptocurrencies/search/:query',
-        getTrending: 'GET /api/cryptocurrencies/trending',
-        getFromDatabase: 'GET /api/cryptocurrencies/db/:symbol',
+        list: 'GET /api/cryptocurrencies',
+        details: 'GET /api/cryptocurrencies/:id',
+      },
+      predictions: {
+        getPrediction: 'GET /api/predictions/:symbol',
+        getAccuracy: 'GET /api/predictions/accuracy/:symbol?days=30',
       },
       sentiment: {
+        getSentiment: 'GET /api/sentiment/:symbol',
         analyzeSentiment: 'POST /api/sentiment/analyze',
-        storeSentiment: 'POST /api/sentiment/store',
-        getSentiments: 'GET /api/sentiment/:symbol?limit=20&days=7',
-        getSentimentSummary: 'GET /api/sentiment/:symbol/summary',
       },
       news: {
-        fetchNewsFeed: 'GET /api/news/feed?limit=50',
-        analyzeNewsSentiment: 'GET /api/news/sentiment/:symbol?days=7',
-        getTrendingTopics: 'GET /api/news/trending?limit=10',
-        getNewsImpactScore: 'GET /api/news/impact/:symbol',
+        getFeed: 'GET /api/news/feed',
+        searchNews: 'GET /api/news/search?q=bitcoin',
       },
       advancedML: {
         engineerFeatures: 'POST /api/ml/engineer-features',
@@ -144,7 +147,41 @@ app.get('/', (_req, res) => {
         stressTest: 'POST /api/risk/stress-test',
         scenarios: 'GET /api/risk/scenarios',
         hedgingRecommendation: 'POST /api/risk/hedging-recommendation',
+      },
+      websocket: {
+        status: 'GET /api/websocket/status',
+        broadcastAlert: 'POST /api/websocket/broadcast-alert',
+        sendPortfolioUpdate: 'POST /api/websocket/send-portfolio-update',
+        getSubscriptions: 'GET /api/websocket/subscriptions/:userId',
+        testConnection: 'POST /api/websocket/test-connection',
+      },
+      analytics: {
+        performance: 'POST /api/analytics/performance',
+        correlations: 'POST /api/analytics/correlations',
+        valueAtRisk: 'POST /api/analytics/value-at-risk',
+        tradingStatistics: 'POST /api/analytics/trading-statistics',
+        performanceAttribution: 'POST /api/analytics/performance-attribution',
+        dashboard: 'POST /api/analytics/dashboard',
+        riskMetrics: 'POST /api/analytics/risk-metrics',
+        compareStrategies: 'POST /api/analytics/compare-strategies',
       }
+    },
+    websocket: {
+      url: 'ws://localhost:5000',
+      description: 'WebSocket connection for real-time alerts and updates',
+      messageTypes: [
+        'subscribe - Subscribe to cryptocurrency updates',
+        'unsubscribe - Unsubscribe from cryptocurrency updates',
+        'alert-settings - Update alert preferences',
+        'ping - Keep connection alive',
+      ],
+      alertTypes: [
+        'price-alert - Price movement alerts',
+        'sentiment-alert - Sentiment change alerts',
+        'indicator-alert - Technical indicator alerts',
+        'portfolio-update - Portfolio value updates',
+        'news-alert - Breaking news alerts',
+      ],
     },
     documentation: 'See README.md for detailed API documentation',
   });
@@ -201,9 +238,13 @@ async function startServer() {
     await prisma.$queryRaw`SELECT 1`;
     console.log('✓ Database connection successful');
 
+    // Initialize WebSocket server
+    websocketService.initializeServer(server);
+    console.log('✓ WebSocket server initialized');
+
     // Start listening
-    app.listen(PORT, () => {
-      console.log(`\n╔════════════════════════════════════════════════════════════╗\n║     Crypto AI Trading Backend Server Started               ║\n╠════════════════════════════════════════════════════════════╣\n║ Server running on: http://localhost:${PORT}                    ║\n║ Health check: http://localhost:${PORT}/health                 ║\n║ API Documentation: http://localhost:${PORT}/                  ║\n║ Database: PostgreSQL (crypto_ai_db)                        ║\n║ AI Model: Xenova/distilbert-base-uncased-finetuned-sst-2  ║\n║ Advanced Features: News Scraping, ML, Backtesting          ║\n╚════════════════════════════════════════════════════════════╝\n      `);
+    server.listen(PORT, () => {
+      console.log(`\n╔════════════════════════════════════════════════════════════╗\n║     Crypto AI Trading Backend Server Started               ║\n╠════════════════════════════════════════════════════════════╣\n║ Server running on: http://localhost:${PORT}                    ║\n║ Health check: http://localhost:${PORT}/health                 ║\n║ API Documentation: http://localhost:${PORT}/                  ║\n║ WebSocket: ws://localhost:${PORT}                             ║\n║ Database: PostgreSQL (crypto_ai_db)                        ║\n║ AI Model: Xenova/distilbert-base-uncased-finetuned-sst-2  ║\n║ Advanced Features: News, ML, Backtesting, WebSocket, Analytics ║\n╚════════════════════════════════════════════════════════════╝\n      `);
     });
   } catch (error) {
     console.error('Failed to start server:', error.message);
